@@ -95,15 +95,15 @@ sequenceDiagram
     Server->>Helper: forward("offer")
     Helper->>Server: emit("answer", sdpAnswer + fcmToken)
     Server->>Elder: forward("answer")
-    Elder<-->>Helper: ICE Candidate Negotiation (Google STUN + TURN)
+    Elder-->>Helper: ICE Candidate Exchange (Google STUN + TURN)
 
     Note over Elder,Helper: 3. Active Real-Time Support Session
-    Elder==>>Helper: Encrypted Video Track (P2P Screen Broadcast)
-    Elder<=>>Helper: Full-Duplex Two-Way Audio (Auto-Loudspeaker)
+    Elder->>Helper: P2P Encrypted Video Track (Screen Broadcast)
+    Elder->>Helper: Two-Way Audio Stream (Auto-Loudspeaker)
     Helper->>Server: emit("draw-pointer", { xRatio, yRatio })
     Server->>Elder: forward("draw-pointer")
     Elder->>Elder: PointerOverlayService renders Red Dot on top of Apps
-    Helper<=>>Elder: WebRTC DataChannel (Instant In-Session Text Chat)
+    Helper->>Elder: WebRTC DataChannel (In-Session Text Chat)
 
     Note over Elder,Helper: 4. Safe Disconnection
     Elder->>Elder: Tap Draggable Floating "Stop" Button
