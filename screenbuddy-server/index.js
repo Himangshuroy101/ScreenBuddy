@@ -5,14 +5,53 @@ const cors = require('cors');
 
 // --- 1. IMPORT & INITIALIZE FIREBASE ADMIN ---
 const admin = require('firebase-admin');
-const serviceAccount = require('./serviceAccountKey.json'); // Ensure this file is in the same folder!
+let serviceAccount = null;
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    console.log('[Firebase] Loaded credentials from FIREBASE_SERVICE_ACCOUNT env variable.');
+  } catch (err) {
+    console.error('[Firebase] Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', err.message);
+  }
+}
+
+if (!serviceAccount) {
+  try {
+    serviceAccount = require('./serviceAccountKey.json');
+    console.log('[Firebase] Loaded credentials from local serviceAccountKey.json file.');
+  } catch (err) {
+    console.warn('[Firebase] Warning: serviceAccountKey.json not found and FIREBASE_SERVICE_ACCOUNT not set. Push notifications will be disabled.');
+  }
+}
+
+if (serviceAccount) {
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    console.log('[Firebase] Admin SDK initialized successfully.');
+  } catch (err) {
+    console.error('[Firebase] Failed to initialize Admin SDK:', err.message);
+  }
+}
 
 const app = express();
 app.use(cors());
+
+// Health Check & Uptime ping endpoints (for Render/Railway keep-alive bots like UptimeRobot)
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    service: 'ScreenBuddy Signaling Server',
+    uptimeSeconds: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
 
 const server = http.createServer(app);
 
@@ -148,6 +187,12 @@ io.on('connection', (socket) => {
     }
 
     console.log(`SOS Triggered for Room: ${data.roomId}`);
+
+    if (!admin.apps.length) {
+      console.warn('[Firebase] Cannot send push notification: Firebase Admin is not initialized.');
+      socket.emit('error-message', { code: 'FCM_NOT_CONFIGURED', message: 'Push notifications are not configured on the server.' });
+      return;
+    }
 
     try {
       const message = {

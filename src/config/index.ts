@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 /**
  * Centralized app configuration.
  * All server URLs, WebRTC settings, and environment-specific values live here.
@@ -6,9 +8,29 @@
 // ──────────────────────────────────────────────
 // Signaling Server
 // ──────────────────────────────────────────────
-export const SIGNALING_SERVER: string = __DEV__
+export const DEFAULT_SIGNALING_SERVER: string = __DEV__
   ? 'http://192.168.29.128:3000' // Local dev machine
-  : 'https://signal.screenbuddy.app'; // TODO: Replace with production URL
+  : 'https://signal.screenbuddy.app'; // Production URL fallback
+
+export const SIGNALING_SERVER = DEFAULT_SIGNALING_SERVER;
+
+export const CUSTOM_SERVER_KEY = '@screenbuddy_custom_server_url';
+
+/**
+ * Returns the active signaling server URL.
+ * Checks for a user-configured override in AsyncStorage, otherwise falls back to default.
+ */
+export async function getSignalingServer(): Promise<string> {
+  try {
+    const custom = await AsyncStorage.getItem(CUSTOM_SERVER_KEY);
+    if (custom && custom.trim().length > 0) {
+      return custom.trim();
+    }
+  } catch (e) {
+    console.error('[Config] Failed to load custom signaling server:', e);
+  }
+  return DEFAULT_SIGNALING_SERVER;
+}
 
 // ──────────────────────────────────────────────
 // Privacy Policy

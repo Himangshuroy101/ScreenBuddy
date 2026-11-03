@@ -26,7 +26,7 @@ import { getMessaging, getToken, requestPermission } from '@react-native-firebas
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 
 import { useTheme, ThemeColors } from '../theme';
-import { SIGNALING_SERVER, ICE_CONFIGURATION, SOCKET_OPTIONS } from '../config';
+import { SIGNALING_SERVER, ICE_CONFIGURATION, SOCKET_OPTIONS, getSignalingServer } from '../config';
 import { usePreferences } from '../context/PreferencesContext';
 import { useDataChannel } from '../hooks/useDataChannel';
 import { useConnectionQuality } from '../hooks/useConnectionQuality';
@@ -149,36 +149,44 @@ export default function HelperScreen({ route, navigation }: HelperScreenProps) {
   }, [remoteStream, isScanning, isChatOpen, navigation]);
 
   useEffect(() => {
-    socketRef.current = io(SIGNALING_SERVER, SOCKET_OPTIONS);
-    const socket = socketRef.current;
+    let isMounted = true;
 
-    socket.on('connect', () => setConnectionStatus('connected'));
-    socket.on('disconnect', () => setConnectionStatus('disconnected'));
-    socket.on('reconnect_attempt', () => setConnectionStatus('reconnecting'));
-    socket.on('reconnect', () => setConnectionStatus('connected'));
-    socket.on('reconnect_failed', () => setConnectionStatus('error'));
-    socket.on('connect_error', () => setConnectionStatus('error'));
+    getSignalingServer().then((serverUrl) => {
+      if (!isMounted) return;
+      socketRef.current = io(serverUrl, SOCKET_OPTIONS);
+      const socket = socketRef.current;
 
-    socket.on('offer', async (offer: any) => {
-      await handleReceiveOffer(offer);
-    });
+      socket.on('connect', () => setConnectionStatus('connected'));
+      socket.on('disconnect', () => setConnectionStatus('disconnected'));
+      socket.on('reconnect_attempt', () => setConnectionStatus('reconnecting'));
+      socket.on('reconnect', () => setConnectionStatus('connected'));
+      socket.on('reconnect_failed', () => setConnectionStatus('error'));
+      socket.on('connect_error', () => setConnectionStatus('error'));
 
-    socket.on('ice-candidate', async (candidate: any) => {
-      if (candidate) {
-        if (
-          peerConnectionRef.current &&
-          peerConnectionRef.current.remoteDescription
-        ) {
-          await peerConnectionRef.current
-            .addIceCandidate(new RTCIceCandidate(candidate))
-            .catch((e: any) => console.log(e));
-        } else {
-          pendingCandidates.current.push(candidate);
+      socket.on('offer', async (offer: any) => {
+        await handleReceiveOffer(offer);
+      });
+
+      socket.on('ice-candidate', async (candidate: any) => {
+        if (candidate) {
+          if (
+            peerConnectionRef.current &&
+            peerConnectionRef.current.remoteDescription
+          ) {
+            await peerConnectionRef.current
+              .addIceCandidate(new RTCIceCandidate(candidate))
+              .catch((e: any) => console.log(e));
+          } else {
+            pendingCandidates.current.push(candidate);
+          }
         }
-      }
+      });
     });
 
-    return () => { disconnectCall(); };
+    return () => {
+      isMounted = false;
+      disconnectCall();
+    };
   }, []);
 
   // Auto-join from push notification or deep link

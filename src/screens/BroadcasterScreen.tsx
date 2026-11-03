@@ -26,7 +26,7 @@ import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import LottieView from 'lottie-react-native';
 
 import { useTheme, ThemeColors } from '../theme';
-import { SIGNALING_SERVER, ICE_CONFIGURATION, SOCKET_OPTIONS } from '../config';
+import { SIGNALING_SERVER, ICE_CONFIGURATION, SOCKET_OPTIONS, getSignalingServer } from '../config';
 import { usePreferences } from '../context/PreferencesContext';
 import { useDataChannel } from '../hooks/useDataChannel';
 import { useConnectionQuality } from '../hooks/useConnectionQuality';
@@ -121,120 +121,126 @@ export default function BroadcasterScreen({ route, navigation }: BroadcasterScre
   }, [isStreaming, isChatOpen]);
 
   useEffect(() => {
+    let isMounted = true;
+    let stopListener: any = null;
+
     PointerOverlay.requestOverlayPermission().then((hasPermission: boolean) => {
       if (!hasPermission) {
         Alert.alert('Action Required', 'Please enable "Draw over other apps".');
       }
     });
 
-    socketRef.current = io(SIGNALING_SERVER, SOCKET_OPTIONS);
-    const socket = socketRef.current;
+    getSignalingServer().then((serverUrl) => {
+      if (!isMounted) return;
+      socketRef.current = io(serverUrl, SOCKET_OPTIONS);
+      const socket = socketRef.current;
 
-    // Connection status tracking
-    socket.on('connect', () => setConnectionStatus('connected'));
-    socket.on('disconnect', () => setConnectionStatus('disconnected'));
-    socket.on('reconnect_attempt', () => setConnectionStatus('reconnecting'));
-    socket.on('reconnect', () => setConnectionStatus('connected'));
-    socket.on('reconnect_failed', () => setConnectionStatus('error'));
-    socket.on('connect_error', () => setConnectionStatus('error'));
+      // Connection status tracking
+      socket.on('connect', () => setConnectionStatus('connected'));
+      socket.on('disconnect', () => setConnectionStatus('disconnected'));
+      socket.on('reconnect_attempt', () => setConnectionStatus('reconnecting'));
+      socket.on('reconnect', () => setConnectionStatus('connected'));
+      socket.on('reconnect_failed', () => setConnectionStatus('error'));
+      socket.on('connect_error', () => setConnectionStatus('error'));
 
-    const setupRoom = async () => {
-      let id = await AsyncStorage.getItem('DEVICE_ID');
-      if (!id) {
-        const { generateDeviceId } = require('../config');
-        id = generateDeviceId();
-        await AsyncStorage.setItem('DEVICE_ID', id!);
-      }
-      setRoomId(id!);
-      socket.emit('join-room', id!);
+      const setupRoom = async () => {
+        let id = await AsyncStorage.getItem('DEVICE_ID');
+        if (!id) {
+          const { generateDeviceId } = require('../config');
+          id = generateDeviceId();
+          await AsyncStorage.setItem('DEVICE_ID', id!);
+        }
+        setRoomId(id!);
+        socket.emit('join-room', id!);
 
-      const count = await getHelperCount();
-      setHelperCount(count);
+        const count = await getHelperCount();
+        setHelperCount(count);
 
-      if (mode === 'sos' && count > 0) {
-        console.log('SOS Mode Activated! Ringing all helpers...');
-        const tokens = await getAllFcmTokens();
-        tokens.forEach((token) => {
-          socket.emit('trigger-sos', { targetToken: token, roomId: id });
-        });
-        startScreenShare();
-      }
-      // In adhoc mode, wait for the user to tap "Start Sharing" (consent screen)
-    };
+        if (mode === 'sos' && count > 0) {
+          console.log('SOS Mode Activated! Ringing all helpers...');
+          const tokens = await getAllFcmTokens();
+          tokens.forEach((token) => {
+            socket.emit('trigger-sos', { targetToken: token, roomId: id });
+          });
+          startScreenShare();
+        }
+      };
 
-    setupRoom();
+      setupRoom();
 
-    socket.on('user-joined', async () => {
-      console.log('Helper joined! Creating offer...');
-      createOffer(roomIdRef.current);
-    });
+      socket.on('user-joined', async () => {
+        console.log('Helper joined! Creating offer...');
+        createOffer(roomIdRef.current);
+      });
 
-    socket.on('answer', async (answer: any) => {
-      if (!answer || !answer.type || !answer.sdp) return;
+      socket.on('answer', async (answer: any) => {
+        if (!answer || !answer.type || !answer.sdp) return;
 
-      if (answer.fcmToken) {
-        const added = await addHelper({
-          fcmToken: answer.fcmToken,
-          deviceId: roomIdRef.current,
-          label: `Helper ${helperCount + 1}`,
-        });
-        if (added) {
-          const newCount = await getHelperCount();
-          setHelperCount(newCount);
-          
-          if (preferences.hapticEnabled) {
-            ReactNativeHapticFeedback.trigger('notificationSuccess', {
-              enableVibrateFallback: true,
-              ignoreAndroidSystemSettings: false,
-            });
+        if (answer.fcmToken) {
+          const added = await addHelper({
+            fcmToken: answer.fcmToken,
+            deviceId: roomIdRef.current,
+            label: `Helper ${helperCount + 1}`,
+          });
+          if (added) {
+            const newCount = await getHelperCount();
+            setHelperCount(newCount);
+            
+            if (preferences.hapticEnabled) {
+              ReactNativeHapticFeedback.trigger('notificationSuccess', {
+                enableVibrateFallback: true,
+                ignoreAndroidSystemSettings: false,
+              });
+            }
+            
+            setShowSuccess(true);
+            setTimeout(() => {
+              setShowSuccess(false);
+            }, 3000);
           }
-          
-          setShowSuccess(true);
-          setTimeout(() => {
-            setShowSuccess(false);
-          }, 3000);
         }
-      }
 
-      const remoteDesc = new RTCSessionDescription(answer);
-      await peerConnectionRef.current?.setRemoteDescription(remoteDesc);
+        const remoteDesc = new RTCSessionDescription(answer);
+        await peerConnectionRef.current?.setRemoteDescription(remoteDesc);
 
-      pendingCandidates.current.forEach((c) =>
-        peerConnectionRef.current?.addIceCandidate(new RTCIceCandidate(c)),
-      );
-      pendingCandidates.current = [];
-    });
+        pendingCandidates.current.forEach((c) =>
+          peerConnectionRef.current?.addIceCandidate(new RTCIceCandidate(c)),
+        );
+        pendingCandidates.current = [];
+      });
 
-    socket.on('ice-candidate', async (candidate: any) => {
-      if (candidate) {
-        if (
-          peerConnectionRef.current &&
-          peerConnectionRef.current.remoteDescription
-        ) {
-          await peerConnectionRef.current
-            .addIceCandidate(new RTCIceCandidate(candidate))
-            .catch((e: any) => console.log(e));
-        } else {
-          pendingCandidates.current.push(candidate);
+      socket.on('ice-candidate', async (candidate: any) => {
+        if (candidate) {
+          if (
+            peerConnectionRef.current &&
+            peerConnectionRef.current.remoteDescription
+          ) {
+            await peerConnectionRef.current
+              .addIceCandidate(new RTCIceCandidate(candidate))
+              .catch((e: any) => console.log(e));
+          } else {
+            pendingCandidates.current.push(candidate);
+          }
         }
-      }
+      });
+
+      socket.on('draw-pointer', (coords: any) => {
+        if (coords) PointerOverlay.updatePointer(coords.x, coords.y);
+        else PointerOverlay.hidePointer();
+      });
     });
 
-    socket.on('draw-pointer', (coords: any) => {
-      if (coords) PointerOverlay.updatePointer(coords.x, coords.y);
-      else PointerOverlay.hidePointer();
-    });
-
-    const stopListener = pointerEventEmitter.addListener(
+    stopListener = pointerEventEmitter.addListener(
       'onStopSharing',
       () => handleLeaveScreen(),
     );
 
     return () => {
+      isMounted = false;
       PointerOverlay.stopOverlay();
       if (socketRef.current) socketRef.current.disconnect();
       stopStreaming();
-      stopListener.remove();
+      if (stopListener) stopListener.remove();
     };
   }, []);
 

@@ -8,6 +8,9 @@ import {
   Switch,
   Alert,
   Platform,
+  Modal,
+  TextInput,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,7 +21,13 @@ import { Linking } from 'react-native';
 
 import { useTheme, ThemeColors } from '../theme';
 import { usePreferences } from '../context/PreferencesContext';
-import { SIGNALING_SERVER, PRIVACY_POLICY_URL } from '../config';
+import {
+  SIGNALING_SERVER,
+  DEFAULT_SIGNALING_SERVER,
+  CUSTOM_SERVER_KEY,
+  getSignalingServer,
+  PRIVACY_POLICY_URL,
+} from '../config';
 import type { SettingsScreenProps } from '../types/navigation';
 
 const hapticOptions = {
@@ -32,12 +41,52 @@ export default function SettingsScreen({ navigation }: SettingsScreenProps) {
   const { preferences, updatePreference } = usePreferences();
 
   const [deviceId, setDeviceId] = React.useState('...');
+  const [serverUrl, setServerUrl] = React.useState(SIGNALING_SERVER);
+  const [isServerModalVisible, setIsServerModalVisible] = React.useState(false);
+  const [inputServerUrl, setInputServerUrl] = React.useState('');
 
   React.useEffect(() => {
     AsyncStorage.getItem('DEVICE_ID').then((id) => {
       if (id) setDeviceId(id);
     });
+    getSignalingServer().then((url) => {
+      setServerUrl(url);
+    });
   }, []);
+
+  const handleOpenServerModal = () => {
+    setInputServerUrl(serverUrl);
+    setIsServerModalVisible(true);
+  };
+
+  const handleSaveServer = async () => {
+    const trimmed = inputServerUrl.trim();
+    if (!trimmed) {
+      await AsyncStorage.removeItem(CUSTOM_SERVER_KEY);
+      setServerUrl(DEFAULT_SIGNALING_SERVER);
+      setIsServerModalVisible(false);
+      ReactNativeHapticFeedback.trigger('notificationSuccess', hapticOptions);
+      Alert.alert('Reset', 'Signaling server reset to default.');
+      return;
+    }
+    let formatted = trimmed;
+    if (!formatted.startsWith('http://') && !formatted.startsWith('https://')) {
+      formatted = 'https://' + formatted;
+    }
+    await AsyncStorage.setItem(CUSTOM_SERVER_KEY, formatted);
+    setServerUrl(formatted);
+    setIsServerModalVisible(false);
+    ReactNativeHapticFeedback.trigger('notificationSuccess', hapticOptions);
+    Alert.alert('Server Updated', `Active signal server is now:\n${formatted}`);
+  };
+
+  const handleResetServer = async () => {
+    await AsyncStorage.removeItem(CUSTOM_SERVER_KEY);
+    setServerUrl(DEFAULT_SIGNALING_SERVER);
+    setIsServerModalVisible(false);
+    ReactNativeHapticFeedback.trigger('impactLight', hapticOptions);
+    Alert.alert('Reset', 'Signaling server reset to default.');
+  };
 
   const copyDeviceId = () => {
     Clipboard.setString(deviceId);
@@ -202,17 +251,18 @@ export default function SettingsScreen({ navigation }: SettingsScreenProps) {
         {/* Network Section */}
         <Text style={styles.sectionTitle}>NETWORK</Text>
         <View style={styles.section}>
-          <View style={styles.row}>
+          <TouchableOpacity style={styles.row} onPress={handleOpenServerModal}>
             <View style={styles.rowLeft}>
               <Icon name="server-network" size={22} color={theme.accent} />
               <View style={styles.rowText}>
                 <Text style={styles.rowLabel}>Signal Server</Text>
                 <Text style={styles.rowValue} numberOfLines={1}>
-                  {SIGNALING_SERVER}
+                  {serverUrl}
                 </Text>
               </View>
             </View>
-          </View>
+            <Icon name="pencil-outline" size={18} color={theme.textSecondary} />
+          </TouchableOpacity>
 
           <View style={styles.divider} />
 
@@ -294,6 +344,60 @@ export default function SettingsScreen({ navigation }: SettingsScreenProps) {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Server Configuration Modal */}
+      <Modal
+        visible={isServerModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsServerModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setIsServerModalVisible(false)}
+        >
+          <TouchableWithoutFeedback>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Icon name="server-network" size={24} color={theme.accent} />
+                <Text style={styles.modalTitle}>Configure Signal Server</Text>
+              </View>
+
+              <Text style={styles.modalSubtitle}>
+                Enter your cloud server URL (Render / Railway), tunnel URL (Cloudflare / Ngrok), or local IP address:
+              </Text>
+
+              <TextInput
+                style={styles.modalInput}
+                value={inputServerUrl}
+                onChangeText={setInputServerUrl}
+                placeholder="https://your-server.onrender.com"
+                placeholderTextColor={theme.textSecondary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.modalBtnSecondary]}
+                  onPress={handleResetServer}
+                >
+                  <Text style={styles.modalBtnSecondaryText}>Reset Default</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.modalBtnPrimary]}
+                  onPress={handleSaveServer}
+                >
+                  <Text style={styles.modalBtnPrimaryText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -371,5 +475,81 @@ const createStyles = (theme: ThemeColors) =>
       height: 1,
       backgroundColor: theme.border,
       marginLeft: 52,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: theme.modalOverlay,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    modalCard: {
+      width: '100%',
+      backgroundColor: theme.card,
+      borderRadius: 20,
+      padding: 22,
+      borderWidth: 1,
+      borderColor: theme.border,
+      shadowColor: theme.shadowColor,
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.2,
+      shadowRadius: 20,
+      elevation: 10,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      color: theme.text,
+      marginLeft: 10,
+    },
+    modalSubtitle: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      lineHeight: 18,
+      marginBottom: 16,
+    },
+    modalInput: {
+      backgroundColor: theme.inputBg,
+      color: theme.text,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 14,
+      marginBottom: 20,
+    },
+    modalActions: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 10,
+    },
+    modalBtn: {
+      paddingVertical: 10,
+      paddingHorizontal: 18,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    modalBtnPrimary: {
+      backgroundColor: theme.accent,
+    },
+    modalBtnPrimaryText: {
+      color: '#FFFFFF',
+      fontWeight: 'bold',
+      fontSize: 14,
+    },
+    modalBtnSecondary: {
+      backgroundColor: theme.badgeBg,
+    },
+    modalBtnSecondaryText: {
+      color: theme.text,
+      fontWeight: '600',
+      fontSize: 14,
     },
   });
