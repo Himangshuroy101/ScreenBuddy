@@ -6,9 +6,9 @@ import {
   Animated,
   Dimensions,
   Easing,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useTheme, ThemeColors } from '../theme';
 import type { SplashScreenProps } from '../types/navigation';
 
@@ -201,11 +201,13 @@ export default function SplashScreen({ navigation }: SplashScreenProps) {
           pointerEvents="none"
         />
 
-        {/* icon circle */}
+        {/* App Logo */}
         <View style={styles.iconContainer}>
-          {/* inner glow ring */}
-          <View style={styles.innerGlow} />
-          <Icon name="monitor-share" size={72} color="#FFFFFF" />
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="cover"
+          />
         </View>
       </Animated.View>
 
@@ -276,29 +278,26 @@ const createStyles = (theme: ThemeColors) =>
     iconContainer: {
       width: 130,
       height: 130,
-      borderRadius: 65,
-      backgroundColor: ACCENT,
+      borderRadius: 32,
+      backgroundColor: '#FFFFFF',
       justifyContent: 'center',
       alignItems: 'center',
       shadowColor: ACCENT,
       shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.55,
+      shadowOpacity: 0.45,
       shadowRadius: 24,
       elevation: 16,
+      overflow: 'hidden',
     },
-    innerGlow: {
-      position: 'absolute',
-      width: 110,
-      height: 110,
-      borderRadius: 55,
-      borderWidth: 1.5,
-      borderColor: 'rgba(255,255,255,0.25)',
+    logoImage: {
+      width: '100%',
+      height: '100%',
     },
     ring: {
       position: 'absolute',
       width: 130,
       height: 130,
-      borderRadius: 65,
+      borderRadius: 32,
       borderWidth: 2,
       borderColor: ACCENT,
     },

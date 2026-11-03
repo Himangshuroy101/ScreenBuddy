@@ -8,9 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // ──────────────────────────────────────────────
 // Signaling Server
 // ──────────────────────────────────────────────
-export const DEFAULT_SIGNALING_SERVER: string = __DEV__
-  ? 'http://192.168.29.128:3000' // Local dev machine
-  : 'https://signal.screenbuddy.app'; // Production URL fallback
+export const DEFAULT_SIGNALING_SERVER: string = 'https://screenbuddy-server.onrender.com';
 
 export const SIGNALING_SERVER = DEFAULT_SIGNALING_SERVER;
 
@@ -24,6 +22,11 @@ export async function getSignalingServer(): Promise<string> {
   try {
     const custom = await AsyncStorage.getItem(CUSTOM_SERVER_KEY);
     if (custom && custom.trim().length > 0) {
+      // Auto-migrate legacy local dev IP to Render server
+      if (custom.includes('192.168.29.128')) {
+        await AsyncStorage.removeItem(CUSTOM_SERVER_KEY);
+        return DEFAULT_SIGNALING_SERVER;
+      }
       return custom.trim();
     }
   } catch (e) {
